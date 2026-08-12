@@ -576,10 +576,10 @@ async def run_pipeline(
     import pandas as pd
     from .schemas import FocusVersion
 
-    from .storage import get_dataset_parquet_path
-    parquet_path = get_dataset_parquet_path(dataset_id)
-
-    if not parquet_path.exists():
+    from .storage import download_dataset_parquet
+    try:
+        parquet_path = download_dataset_parquet(dataset_id)
+    except (FileNotFoundError, Exception) as e:
         return PipelineRunDetail(
             id=pipeline_run_id,
             dataset_id=dataset_id,

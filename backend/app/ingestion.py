@@ -300,21 +300,23 @@ def ingest_file(
     dq_report.dataset_id = dataset_id
 
     from .storage import (
-        get_dataset_parquet_path, get_relative_parquet_key,
-        verify_dataset_parquet_exists, get_duckdb_path
+        get_dataset_parquet_path,
+        get_relative_parquet_key,
+        verify_dataset_parquet_exists,
+        get_duckdb_path,
     )
 
-    # Write canonical Parquet
+    # Write canonical Parquet under DATA_DIR/parquet/<dataset_id>/data.parquet
     parquet_path = get_dataset_parquet_path(dataset_id)
     parquet_path.parent.mkdir(parents=True, exist_ok=True)
     canonical_df.to_parquet(parquet_path, index=False, engine="pyarrow")
 
-    # Immediate verification after write (Part 4 requirement)
+    # Immediate post-write verification
     is_valid, err_msg = verify_dataset_parquet_exists(dataset_id)
     if not is_valid:
         raise RuntimeError(f"Parquet verification failed after write: {err_msg}")
 
-    # Relative key stored in DB record
+    # Relative key stored in DB record (environment-independent)
     relative_key = get_relative_parquet_key(dataset_id)
 
     # Register in DuckDB

@@ -293,11 +293,10 @@ async def delete_dataset(
 
     await db.commit()
 
-    # 5. Remove local parquet directory and uploaded file
+    # 5. Remove storage objects (R2 objects or local directory + raw upload)
     try:
-        dataset_dir = get_dataset_dir(valid_id)
-        if dataset_dir.exists():
-            shutil.rmtree(dataset_dir, ignore_errors=True)
+        from .storage import delete_dataset_storage
+        delete_dataset_storage(valid_id)
     except Exception:
         pass
 

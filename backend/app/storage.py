@@ -1,19 +1,31 @@
 """
-Centralized Persistent Storage Module for CloudSpend Intelligence.
+Centralized Persistent Storage Module for CloudSpend Intelligence (Prototype Storage).
 
 All runtime analytics files (Parquet datasets, DuckDB database, uploads) resolve
 under the root DATA_DIR configuration (env var DATA_DIR).
 
 Local default: ./data
-Render Production: /opt/render/project/src/data (or Persistent Disk mount path)
+Render Production (Prototype): local filesystem under DATA_DIR
+
+Security:
+  - dataset_id is UUID-validated before any path construction to prevent path traversal attacks.
+  - PostgreSQL database stores ONLY environment-independent relative keys (parquet/<uuid>/data.parquet).
 """
 from __future__ import annotations
+
+import logging
+import os
+import shutil
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from .config import get_settings
 
+logger = logging.getLogger(__name__)
+
+
+# ── ID Validation ─────────────────────────────────────────────────────────────
 
 def validate_dataset_id(dataset_id: str) -> str:
     """
@@ -24,8 +36,10 @@ def validate_dataset_id(dataset_id: str) -> str:
         val = uuid.UUID(str(dataset_id))
         return str(val)
     except (ValueError, AttributeError, TypeError):
-        raise ValueError(f"Invalid dataset ID format: {dataset_id}")
+        raise ValueError(f"Invalid dataset ID format: {dataset_id!r}")
 
+
+# ── Storage Path Resolvers ────────────────────────────────────────────────────
 
 def get_data_dir() -> Path:
     """Return resolved root DATA_DIR directory (creating if missing)."""
@@ -57,8 +71,7 @@ def get_duckdb_path() -> Path:
 def get_dataset_dir(dataset_id: str) -> Path:
     """Return resolved directory for a specific dataset."""
     valid_id = validate_dataset_id(dataset_id)
-    dataset_dir = get_parquet_dir() / valid_id
-    return dataset_dir
+    return get_parquet_dir() / valid_id
 
 
 def get_dataset_parquet_path(dataset_id: str) -> Path:
@@ -72,7 +85,9 @@ def get_relative_parquet_key(dataset_id: str) -> str:
     return f"parquet/{valid_id}/data.parquet"
 
 
-def verify_dataset_parquet_exists(dataset_id: str) -> tuple[bool, Optional[str]]:
+# ── Verification & File Operations ───────────────────────────────────────────
+
+def verify_dataset_parquet_exists(dataset_id: str) -> Tuple[bool, Optional[str]]:
     """
     Verify that the dataset Parquet file exists, is a regular file, and is non-empty.
     Returns (True, None) if valid, or (False, error_reason) if invalid.
@@ -88,3 +103,49 @@ def verify_dataset_parquet_exists(dataset_id: str) -> tuple[bool, Optional[str]]
         return True, None
     except Exception as e:
         return False, str(e)
+
+
+def dataset_parquet_exists(dataset_id: str) -> Tuple[bool, Optional[str]]:
+    """Alias for verify_dataset_parquet_exists."""
+    return verify_dataset_parquet_exists(dataset_id)
+
+
+def download_dataset_parquet(dataset_id: str) -> Path:
+    """
+    Get local Path to dataset Parquet file.
+    Raises FileNotFoundError with DATASET_STORAGE_MISSING if missing/empty.
+    """
+    is_valid, err_msg = verify_dataset_parquet_exists(dataset_id)
+    if not is_valid:
+        raise FileNotFoundError(
+            f"DATASET_STORAGE_MISSING: The dataset metadata exists, but its analytics file is missing. Re-ingestion is required. ({err_msg})"
+        )
+    return get_dataset_parquet_path(dataset_id)
+
+
+def delete_dataset_parquet(dataset_id: str) -> None:
+    """Permanently delete dataset directory and contents (idempotent)."""
+    try:
+        dataset_dir = get_dataset_dir(dataset_id)
+        if dataset_dir.exists():
+            shutil.rmtree(dataset_dir, ignore_errors=True)
+            logger.info("Deleted dataset directory: %s", dataset_dir)
+    except Exception as e:
+        logger.warning("Failed to delete dataset directory for %s: %s", dataset_id, e)
+
+
+def delete_raw_upload(dataset_id: str) -> None:
+    """Delete raw uploaded file if present under uploads/."""
+    try:
+        valid_id = validate_dataset_id(dataset_id)
+        uploads_dir = get_uploads_dir()
+        for f in uploads_dir.glob(f"{valid_id}*"):
+            f.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning("Failed to delete raw upload for %s: %s", dataset_id, e)
+
+
+def delete_dataset_storage(dataset_id: str) -> None:
+    """Delete all local storage files for a dataset (Parquet dir + raw upload)."""
+    delete_dataset_parquet(dataset_id)
+    delete_raw_upload(dataset_id)

@@ -241,8 +241,8 @@ def detect_ewma(
 
 def _load_entity_series(dataset_id: str, entity_type: str, entity_value: str) -> pd.Series:
     """Load daily cost time series for a specific entity from DuckDB."""
-    from .storage import get_dataset_parquet_path
-    parquet_path = get_dataset_parquet_path(dataset_id)
+    from .storage import download_dataset_parquet
+    parquet_path = download_dataset_parquet(dataset_id)
     duck = get_duck()
 
     if entity_type == "total":
@@ -276,8 +276,8 @@ def run_anomaly_detection(
     Run anomaly detection across entities of a given type.
     Uses robust Z-score as primary method, EWMA as secondary.
     """
-    from .storage import get_dataset_parquet_path
-    parquet_path = get_dataset_parquet_path(dataset_id)
+    from .storage import download_dataset_parquet
+    parquet_path = download_dataset_parquet(dataset_id)
     duck = get_duck()
 
     if not _column_exists_duck(duck, parquet_path, entity_type):

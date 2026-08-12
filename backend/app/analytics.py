@@ -21,13 +21,18 @@ from .schemas import (
 
 
 def _get_parquet_path(dataset_id: str) -> str:
-    from .storage import get_dataset_parquet_path, verify_dataset_parquet_exists
-    is_valid, err_msg = verify_dataset_parquet_exists(dataset_id)
-    if not is_valid:
-        raise FileNotFoundError(
-            f"DATASET_STORAGE_MISSING: The dataset metadata exists, but its analytics file is missing. Re-ingestion is required. ({err_msg})"
-        )
-    return str(get_dataset_parquet_path(dataset_id))
+    """
+    Resolve the local path for a dataset's Parquet file.
+
+    For STORAGE_BACKEND=local: returns the direct local path.
+    For STORAGE_BACKEND=r2: downloads from R2 to a temp file and returns that path.
+
+    Raises FileNotFoundError("DATASET_STORAGE_MISSING: ...") if the file is missing.
+    Raises RuntimeError on other storage errors.
+    """
+    from .storage import download_dataset_parquet
+    local_path = download_dataset_parquet(dataset_id)
+    return str(local_path)
 
 
 def _duck() -> duckdb.DuckDBPyConnection:
