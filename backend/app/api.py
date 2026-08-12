@@ -192,6 +192,7 @@ async def ingest_dataset(
 
         return {
             "dataset_id": dataset_id,
+            "dataset_name": dataset_name,
             "status": "succeeded",
             "row_count": provenance["row_count"],
             "validation_status": dq_report.overall_status.value,

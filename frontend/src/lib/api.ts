@@ -47,6 +47,12 @@ async function request<T>(
   })
 
   if (!res.ok) {
+    if (res.status === 401) {
+      clearAuthToken()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login'
+      }
+    }
     const err = await res
       .json()
       .catch(() => ({ error: res.statusText }))
@@ -88,7 +94,7 @@ export const api = {
   deleteDataset: (id: string) =>
     request<any>(`/datasets/${id}`, { method: 'DELETE' }),
 
-  ingestDataset: (
+  ingestDataset: async (
     file: File,
     datasetName: string,
     sourceUrl?: string
@@ -104,7 +110,7 @@ export const api = {
         ? `&source_url=${encodeURIComponent(sourceUrl)}`
         : '')
 
-    return fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         ...(token
@@ -112,7 +118,25 @@ export const api = {
           : {}),
       },
       body: form,
-    }).then((r) => r.json())
+    })
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        clearAuthToken()
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login'
+        }
+      }
+      const err = await res
+        .json()
+        .catch(() => ({ error: res.statusText }))
+
+      throw new Error(
+        err.detail || err.error || res.statusText
+      )
+    }
+
+    return res.json()
   },
 
   spendSummary: (

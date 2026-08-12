@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = "secret"
     jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 60
+    jwt_access_token_expire_minutes: int = 1440  # 24 hours (prototype default)
 
     app_env: Literal["development", "production", "test"] = "development"
     log_level: str = "INFO"

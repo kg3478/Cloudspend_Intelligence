@@ -41,7 +41,10 @@ export default function SettingsPage() {
     setMsg(null)
     try {
       const res = await api.ingestDataset(file, datasetName)
-      setMsg(`Dataset ingested successfully: ${res.row_count} rows. Status: ${res.validation_status}`)
+      const rows = res.row_count ?? '?'
+      const status = res.validation_status ?? res.status ?? 'unknown'
+      const name = res.dataset_name ?? datasetName
+      setMsg(`Dataset "${name}" ingested successfully: ${rows} rows. Status: ${status}`)
       setDatasetName('')
       setFile(null)
       await refreshDatasets()
