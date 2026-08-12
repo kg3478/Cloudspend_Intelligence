@@ -305,8 +305,8 @@ def forecast_entity(
     horizon_days: int = 30,
 ) -> ForecastResult:
     """Forecast spend for a specific entity."""
-    settings = get_settings()
-    parquet_path = Path(settings.parquet_dir) / dataset_id / "data.parquet"
+    from .storage import get_dataset_parquet_path
+    parquet_path = get_dataset_parquet_path(dataset_id)
     duck = get_duck()
 
     if entity_type == "total":

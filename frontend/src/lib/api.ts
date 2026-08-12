@@ -85,6 +85,9 @@ export const api = {
   getDataset: (id: string) =>
     request<any>(`/datasets/${id}`),
 
+  deleteDataset: (id: string) =>
+    request<any>(`/datasets/${id}`, { method: 'DELETE' }),
+
   ingestDataset: (
     file: File,
     datasetName: string,

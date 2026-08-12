@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     arq_redis_url: str = "redis://localhost:6379/1"
 
+    data_dir: str = "./data"
+    frontend_origin: Optional[str] = None
+
     duckdb_path: str = "./data/cloudspend.duckdb"
     parquet_dir: str = "./data/parquet"
 
@@ -32,17 +35,22 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
+        origins = []
         if isinstance(self.cors_origins, list):
-            return self.cors_origins
-
-        if isinstance(self.cors_origins, str):
-            return [
+            origins = list(self.cors_origins)
+        elif isinstance(self.cors_origins, str):
+            origins = [
                 origin.strip()
                 for origin in self.cors_origins.split(",")
                 if origin.strip()
             ]
+        else:
+            origins = ["http://localhost:3000"]
 
-        return ["http://localhost:3000"]
+        if self.frontend_origin and self.frontend_origin.strip() not in origins:
+            origins.append(self.frontend_origin.strip())
+
+        return origins
 
     admin_email: str = "admin@cloudspend.local"
     admin_password: str = "changeme"

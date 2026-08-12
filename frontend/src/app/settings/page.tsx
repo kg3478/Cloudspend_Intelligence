@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import Layout from '@/components/Layout'
 import PageHeader from '@/components/PageHeader'
 import { api } from '@/lib/api'
-import { Settings, Upload, CheckCircle, Database } from 'lucide-react'
+import { useDataset } from '@/lib/useDataset'
+import { Settings, Upload, CheckCircle, Database, Trash2, AlertTriangle } from 'lucide-react'
 
 export default function SettingsPage() {
   const [health, setHealth] = useState<any>(null)
@@ -13,9 +14,24 @@ export default function SettingsPage() {
   const [uploading, setUploading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
+  // Delete modal state
+  const [deletingDataset, setDeletingDataset] = useState<any | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const { datasetId, setDatasetId } = useDataset()
+
+  const refreshDatasets = async () => {
+    try {
+      const list = await api.listDatasets()
+      setDatasets(list)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   useEffect(() => {
     api.health().then(setHealth).catch(console.error)
-    api.listDatasets().then(setDatasets).catch(console.error)
+    refreshDatasets()
   }, [])
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -26,11 +42,45 @@ export default function SettingsPage() {
     try {
       const res = await api.ingestDataset(file, datasetName)
       setMsg(`Dataset ingested successfully: ${res.row_count} rows. Status: ${res.validation_status}`)
-      api.listDatasets().then(setDatasets)
+      setDatasetName('')
+      setFile(null)
+      await refreshDatasets()
+      if (res.dataset_id) {
+        setDatasetId(res.dataset_id)
+      }
     } catch (err: any) {
       setMsg(`Error: ${err.message}`)
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deletingDataset) return
+    setDeleting(true)
+    try {
+      await api.deleteDataset(deletingDataset.id)
+      setMsg(`Dataset '${deletingDataset.name}' was permanently deleted.`)
+      
+      const updatedList = await api.listDatasets()
+      setDatasets(updatedList)
+
+      // Reset active selection if deleted dataset was selected
+      if (datasetId === deletingDataset.id) {
+        if (updatedList.length > 0) {
+          setDatasetId(updatedList[0].id)
+        } else {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('cs_dataset_id')
+          }
+          setDatasetId('')
+        }
+      }
+    } catch (err: any) {
+      setMsg(`Failed to delete dataset: ${err.message}`)
+    } finally {
+      setDeleting(false)
+      setDeletingDataset(null)
     }
   }
 
@@ -117,7 +167,16 @@ export default function SettingsPage() {
             </div>
           ) : (
             <table className="table">
-              <thead><tr><th>Name</th><th>Rows</th><th>FOCUS Version</th><th>Status</th><th>Currency</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Rows</th>
+                  <th>FOCUS Version</th>
+                  <th>Status</th>
+                  <th>Currency</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
               <tbody>
                 {datasets.map(d => (
                   <tr key={d.id}>
@@ -126,12 +185,65 @@ export default function SettingsPage() {
                     <td>{d.focus_version}</td>
                     <td><span className={`badge badge-${d.validation_status?.toLowerCase()}`}>{d.validation_status}</span></td>
                     <td>{d.currency}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        className="btn btn-danger"
+                        style={{ fontSize: 12, padding: '4px 8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                        onClick={() => setDeletingDataset(d)}
+                      >
+                        <Trash2 size={12} style={{ marginRight: 4 }} />
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
+
+        {/* Confirmation Modal */}
+        {deletingDataset && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+          }}>
+            <div className="card" style={{ maxWidth: 460, width: '100%', padding: 24, borderRadius: 12, border: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#ef4444', marginBottom: 16 }}>
+                <AlertTriangle size={24} />
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Delete dataset &apos;{deletingDataset.name}&apos;?</h3>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 20 }}>
+                This will permanently remove:
+              </p>
+              <ul style={{ fontSize: 13, color: 'var(--text-muted)', paddingLeft: 20, marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <li>Dataset metadata from database</li>
+                <li>Uploaded raw billing file and Parquet analytics storage</li>
+                <li>DuckDB analytical tables</li>
+                <li>Associated anomalies, forecasts, recommendations, and agent pipeline runs</li>
+              </ul>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button
+                  className="btn"
+                  onClick={() => setDeletingDataset(null)}
+                  disabled={deleting}
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  style={{ background: '#ef4444', color: '#ffffff' }}
+                >
+                  {deleting ? 'Deleting…' : 'Permanently Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   )

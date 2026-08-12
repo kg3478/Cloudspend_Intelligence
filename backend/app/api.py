@@ -106,6 +106,24 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
                         is_active=user.is_active, created_at=user.created_at)
 
 
+from sqlalchemy import select, update, delete
+from .storage import (
+    get_uploads_dir, get_dataset_dir, validate_dataset_id,
+    verify_dataset_parquet_exists
+)
+
+def _handle_analytics_error(e: Exception):
+    err_str = str(e)
+    if "DATASET_STORAGE_MISSING" in err_str or "Parquet file missing" in err_str or isinstance(e, FileNotFoundError):
+        raise HTTPException(
+            status_code=404,
+            detail="DATASET_STORAGE_MISSING: The dataset metadata exists, but its analytics file is missing. Re-ingestion is required."
+        )
+    if isinstance(e, ValueError):
+        raise HTTPException(status_code=400, detail=err_str)
+    raise HTTPException(status_code=500, detail=err_str)
+
+
 # ── Datasets ──────────────────────────────────────────────────────────────────
 
 @router.post("/datasets/ingest", response_model=dict, tags=["Datasets"])
@@ -116,12 +134,10 @@ async def ingest_dataset(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    settings = get_settings()
     dataset_id = str(uuid.uuid4())
 
-    # Save uploaded file
-    upload_dir = Path(settings.parquet_dir).parent / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    # Save uploaded file under DATA_DIR/uploads/
+    upload_dir = get_uploads_dir()
     suffix = Path(file.filename).suffix if file.filename else ".csv"
     file_path = upload_dir / f"{dataset_id}{suffix}"
 
@@ -206,7 +222,12 @@ async def get_dataset(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    try:
+        valid_id = validate_dataset_id(dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset ID format")
+
+    result = await db.execute(select(Dataset).where(Dataset.id == valid_id))
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -214,6 +235,82 @@ async def get_dataset(
             "validation_status": dataset.validation_status, "ingested_at": str(dataset.ingested_at),
             "focus_version": dataset.focus_version, "currency": dataset.currency,
             "date_range_start": str(dataset.date_range_start), "date_range_end": str(dataset.date_range_end)}
+
+
+@router.delete("/datasets/{dataset_id}", tags=["Datasets"])
+async def delete_dataset(
+    dataset_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Delete a dataset permanently:
+    1. Validate dataset_id format safely.
+    2. Check dataset existence.
+    3. Clean up database relationships in proper dependency order.
+    4. Remove local parquet directory and files.
+    5. Clean up DuckDB table state.
+    """
+    try:
+        valid_id = validate_dataset_id(dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset ID format")
+
+    result = await db.execute(select(Dataset).where(Dataset.id == valid_id))
+    dataset = result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # 1. Clean up recommendation-dependent models
+    rec_result = await db.execute(select(RecommendationModel.id).where(RecommendationModel.dataset_id == valid_id))
+    rec_ids = rec_result.scalars().all()
+    if rec_ids:
+        await db.execute(delete(SavingsEstimateModel).where(SavingsEstimateModel.recommendation_id.in_(rec_ids)))
+        await db.execute(delete(ScenarioRun).where(ScenarioRun.recommendation_id.in_(rec_ids)))
+
+    # 2. Clean up pipeline run dependent models
+    pipe_result = await db.execute(select(PipelineRunModel.id).where(PipelineRunModel.dataset_id == valid_id))
+    pipe_ids = pipe_result.scalars().all()
+    if pipe_ids:
+        await db.execute(delete(Investigation).where(Investigation.pipeline_run_id.in_(pipe_ids)))
+        await db.execute(delete(AgentRunModel).where(AgentRunModel.pipeline_run_id.in_(pipe_ids)))
+
+    # 3. Clean up anomaly dependent models
+    anom_result = await db.execute(select(AnomalyModel.id).where(AnomalyModel.dataset_id == valid_id))
+    anom_ids = anom_result.scalars().all()
+    if anom_ids:
+        await db.execute(delete(Investigation).where(Investigation.anomaly_id.in_(anom_ids)))
+
+    # 4. Clean up direct dataset models
+    await db.execute(delete(RecommendationModel).where(RecommendationModel.dataset_id == valid_id))
+    await db.execute(delete(OpportunityModel).where(OpportunityModel.dataset_id == valid_id))
+    await db.execute(delete(PipelineRunModel).where(PipelineRunModel.dataset_id == valid_id))
+    await db.execute(delete(AnomalyModel).where(AnomalyModel.dataset_id == valid_id))
+    await db.execute(delete(ForecastModel).where(ForecastModel.dataset_id == valid_id))
+    await db.execute(delete(DataQualityReportModel).where(DataQualityReportModel.dataset_id == valid_id))
+    await db.execute(delete(IngestionRun).where(IngestionRun.dataset_id == valid_id))
+    await db.execute(delete(Dataset).where(Dataset.id == valid_id))
+
+    await db.commit()
+
+    # 5. Remove local parquet directory and uploaded file
+    try:
+        dataset_dir = get_dataset_dir(valid_id)
+        if dataset_dir.exists():
+            shutil.rmtree(dataset_dir, ignore_errors=True)
+    except Exception:
+        pass
+
+    # 6. Drop DuckDB table if present
+    try:
+        from .db import get_duck
+        duck = get_duck()
+        table_name = f"dataset_{valid_id.replace('-', '_')}"
+        duck.execute(f"DROP TABLE IF EXISTS {table_name}")
+    except Exception:
+        pass
+
+    return {"status": "success", "message": f"Dataset {valid_id} deleted successfully"}
 
 
 # ── Spend Analytics ───────────────────────────────────────────────────────────
@@ -228,7 +325,7 @@ async def spend_summary(
     try:
         return get_spend_summary(dataset_id, period_start, period_end)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 @router.get("/spend/trend", response_model=SpendTrend, tags=["Spend"])
@@ -242,7 +339,7 @@ async def spend_trend(
     try:
         return get_spend_trend(dataset_id, granularity, period_start, period_end)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 @router.get("/spend/breakdown", tags=["Spend"])
@@ -256,10 +353,8 @@ async def spend_breakdown(
 ):
     try:
         return get_resource_breakdown(dataset_id, dimension, period_start, period_end, limit)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 # ── Anomalies ─────────────────────────────────────────────────────────────────
@@ -274,7 +369,7 @@ async def list_anomalies(
         report = run_anomaly_detection(dataset_id, entity_type)
         return report.model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 # ── Agent Pipeline ────────────────────────────────────────────────────────────
@@ -290,7 +385,7 @@ async def trigger_pipeline(
         result = await run_pipeline(dataset_id, llm)
         return result.model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 # ── Forecasts ─────────────────────────────────────────────────────────────────
@@ -305,7 +400,7 @@ async def get_forecasts(
         result = forecast_total_spend(dataset_id, horizon_days)
         return result.model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 # ── Opportunities & Recommendations ───────────────────────────────────────────
@@ -321,7 +416,7 @@ async def get_opportunities(
         report = run_optimization_analysis(dataset_id, attribution, anomaly_report.anomalies)
         return report.model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_analytics_error(e)
 
 
 # ── Data Quality ──────────────────────────────────────────────────────────────

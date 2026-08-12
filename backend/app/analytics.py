@@ -21,8 +21,13 @@ from .schemas import (
 
 
 def _get_parquet_path(dataset_id: str) -> str:
-    settings = get_settings()
-    return str(Path(settings.parquet_dir) / dataset_id / "data.parquet")
+    from .storage import get_dataset_parquet_path, verify_dataset_parquet_exists
+    is_valid, err_msg = verify_dataset_parquet_exists(dataset_id)
+    if not is_valid:
+        raise FileNotFoundError(
+            f"DATASET_STORAGE_MISSING: The dataset metadata exists, but its analytics file is missing. Re-ingestion is required. ({err_msg})"
+        )
+    return str(get_dataset_parquet_path(dataset_id))
 
 
 def _duck() -> duckdb.DuckDBPyConnection:

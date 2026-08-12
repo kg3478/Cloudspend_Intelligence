@@ -12,10 +12,17 @@ export default function DatasetSelector() {
     api.listDatasets()
       .then(ds => {
         setDatasets(ds)
-        if (!datasetId && ds.length > 0) setDatasetId(ds[0].id)
+        if (ds.length > 0) {
+          const exists = ds.some(d => d.id === datasetId)
+          if (!datasetId || !exists) {
+            setDatasetId(ds[0].id)
+          }
+        } else {
+          setDatasetId('')
+        }
       })
       .catch(() => {})
-  }, [])
+  }, [datasetId])
 
   if (!datasets.length) return null
 

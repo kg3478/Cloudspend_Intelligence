@@ -64,22 +64,22 @@ def get_duck() -> duckdb.DuckDBPyConnection:
     global _duck_conn
     with _duck_lock:
         if _duck_conn is None:
-            settings = get_settings()
-            Path(settings.duckdb_path).parent.mkdir(parents=True, exist_ok=True)
+            from .storage import get_duckdb_path
+            duck_path = str(get_duckdb_path())
             try:
-                _duck_conn = duckdb.connect(settings.duckdb_path)
+                _duck_conn = duckdb.connect(duck_path)
             except duckdb.IOException:
-                _duck_conn = duckdb.connect(settings.duckdb_path, read_only=True)
+                _duck_conn = duckdb.connect(duck_path, read_only=True)
         return _duck_conn
 
 
 async def init_db() -> None:
     """Create all tables and ensure required directories exist."""
     from . import models  # noqa: F401 - ensures models are registered
+    from .storage import get_parquet_dir, get_duckdb_path
 
-    settings = get_settings()
-    Path(settings.parquet_dir).mkdir(parents=True, exist_ok=True)
-    Path(settings.duckdb_path).parent.mkdir(parents=True, exist_ok=True)
+    get_parquet_dir()
+    get_duckdb_path().parent.mkdir(parents=True, exist_ok=True)
 
     engine = get_engine()
     async with engine.begin() as conn:

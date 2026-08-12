@@ -132,8 +132,8 @@ def detect_concentration_opportunities(
 
 def detect_quantity_growth_opportunities(dataset_id: str) -> list[Opportunity]:
     """Detect cases where cost grew faster than quantity (pricing change or new resources)."""
-    settings = get_settings()
-    parquet_path = Path(settings.parquet_dir) / dataset_id / "data.parquet"
+    from .storage import get_dataset_parquet_path
+    parquet_path = get_dataset_parquet_path(dataset_id)
     duck = get_duck()
 
     opportunities = []

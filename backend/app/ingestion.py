@@ -299,11 +299,23 @@ def ingest_file(
     dq_report = validate_focus_data(canonical_df, version)
     dq_report.dataset_id = dataset_id
 
+    from .storage import (
+        get_dataset_parquet_path, get_relative_parquet_key,
+        verify_dataset_parquet_exists, get_duckdb_path
+    )
+
     # Write canonical Parquet
-    parquet_dir = Path(settings.parquet_dir) / dataset_id
-    parquet_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = parquet_dir / "data.parquet"
+    parquet_path = get_dataset_parquet_path(dataset_id)
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
     canonical_df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+    # Immediate verification after write (Part 4 requirement)
+    is_valid, err_msg = verify_dataset_parquet_exists(dataset_id)
+    if not is_valid:
+        raise RuntimeError(f"Parquet verification failed after write: {err_msg}")
+
+    # Relative key stored in DB record
+    relative_key = get_relative_parquet_key(dataset_id)
 
     # Register in DuckDB
     duck = get_duck_for_ingestion(settings)
@@ -316,7 +328,7 @@ def ingest_file(
     # Compute provenance
     provenance = compute_provenance(canonical_df, file_path, file_hash, source_url)
     provenance["focus_version"] = version.value
-    provenance["parquet_path"] = str(parquet_path)
+    provenance["parquet_path"] = relative_key
     provenance["duckdb_table"] = table_name
 
     return provenance, dq_report
@@ -324,10 +336,12 @@ def ingest_file(
 
 def get_duck_for_ingestion(settings):
     """Get DuckDB connection for ingestion."""
-    import duckdb
-    Path(settings.duckdb_path).parent.mkdir(parents=True, exist_ok=True)
+    from .storage import get_duckdb_path
+    from .db import get_duck
     try:
-        return duckdb.connect(settings.duckdb_path)
-    except duckdb.IOException:
-        from .db import get_duck
         return get_duck()
+    except Exception:
+        import duckdb
+        duck_path = get_duckdb_path()
+        duck_path.parent.mkdir(parents=True, exist_ok=True)
+        return duckdb.connect(str(duck_path))

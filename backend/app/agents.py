@@ -576,8 +576,8 @@ async def run_pipeline(
     import pandas as pd
     from .schemas import FocusVersion
 
-    settings = get_settings()
-    parquet_path = Path(settings.parquet_dir) / dataset_id / "data.parquet"
+    from .storage import get_dataset_parquet_path
+    parquet_path = get_dataset_parquet_path(dataset_id)
 
     if not parquet_path.exists():
         return PipelineRunDetail(
