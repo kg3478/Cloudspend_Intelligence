@@ -23,7 +23,7 @@ OBSERVE → EXPLAIN → DETECT → DIAGNOSE → OPTIMIZE → ESTIMATE → VALIDA
 ## 2. Key Architecture Principles
 
 - **Deterministic Truth**: All financial calculations, period-over-period attribution, statistical z-scores, and time-series forecasts originate from DuckDB SQL and deterministic Python code. **The LLM never owns numerical truth.**
-- **Google Gemini Integration**: Gemini is used exclusively for natural-language explanations and contextual reasoning over structured JSON evidence. (Configured via `GEMINI_MODEL=gemini-3.6-flash`).
+- **Google Gemini Integration**: Gemini is used exclusively for natural-language explanations and contextual reasoning over structured JSON evidence. (Configured via `GEMINI_MODEL=gemini-3.5-flash-lite`).
 - **LLM Failure Resilience**: The platform operates seamlessly without an LLM (`MockLLMProvider` mode).
 - **No Synthetic Data for Analytics**: Built specifically for real, publicly available **FOCUS (FinOps Open Cost and Usage Specification)** billing data.
 - **Human-in-the-Loop Safety**: Decision-support platform only; does not perform destructive resource modifications.
@@ -87,7 +87,7 @@ When a user clicks **Delete** on a dataset in **Settings & Datasets**:
 | **Database** | PostgreSQL (Async SQLAlchemy 2.0 / asyncpg) |
 | **Analytical Engine** | DuckDB (In-process SQL), PyArrow, Pandas |
 | **ML / Analytics** | NumPy, SciPy, scikit-learn, LightGBM, Statsmodels |
-| **LLM Provider** | Google Gemini API (`gemini-3.6-flash`) with `MockLLMProvider` fallback |
+| **LLM Provider** | Google Gemini API (`GEMINI_MODEL=gemini-3.5-flash-lite`) with `MockLLMProvider` fallback |
 | **Hosting** | Vercel (Frontend) + Render Free (Backend) |
 
 ---

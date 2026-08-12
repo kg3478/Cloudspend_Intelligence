@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     parquet_dir: str = "./data/parquet"
 
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-3.6-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
 
     jwt_secret_key: str = "secret"
     jwt_algorithm: str = "HS256"
