@@ -18,8 +18,8 @@ Evaluated on official FinOps Foundation FOCUS 1.0 Real Dataset (`focus_sample.cs
 | **Agent Pipeline** | DAG Execution | 7/7 Agents Succeeded | 100% / `PASS` | Duration: 9.25s for 7-agent dependent pipeline |
 | **Critic Gate** | Final Decision | `APPROVE` (100% conf) | Safe / `PASS` | Passed safety, evidence, and assumption checks |
 | **Gemini Fallback** | `MockLLMProvider` | 7/7 Agents Succeeded | Offline / `PASS` | 100% operational without external LLM API |
-| **Unit Tests** | Pytest Suite | 18/18 Passed | 100% / `PASS` | Execution time: 1.88s |
-| **Frontend Build** | Next.js Build | 15/15 Routes | 100% / `PASS` | 0 TypeScript or build errors |
+| **Backend Tests** | Pytest Suite | **29/29 Passed** | 100% / `PASS` | Execution time: ~3.5s across all analytics, API, & storage tests |
+| **Frontend Build** | Next.js Build | **15/15 Routes** | 100% / `PASS` | 0 TypeScript or build errors |
 
 ## 3. Baseline Comparisons
-Model selection evaluates LightGBM against naive and 7-day moving average baselines. If LightGBM WAPE exceeds the baseline WAPE on validation splits, the engine automatically selects the baseline model.
+Model selection evaluates LightGBM and Holt-Winters against naive and 7-day moving average baselines. If advanced model WAPE exceeds the baseline WAPE on temporal validation splits, the engine automatically selects the baseline model.
